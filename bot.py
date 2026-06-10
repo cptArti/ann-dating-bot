@@ -1,4 +1,6 @@
 import logging
+import os
+import json
 from datetime import datetime, timedelta
 import telebot
 from telebot import types
@@ -8,8 +10,8 @@ from flask import Flask
 
 logging.basicConfig(level=logging.INFO)
 
-# УБЕДИСЬ, ЧТО ТВОЙ ТОКЕН ТУТ НА МЕСТЕ!
-BOT_TOKEN = '8064709996:AAHKdGrsZhhtxTYb5i0urtEwfYlrSYRMKgA'
+# БЕЗОПАСНО: Бот берет токен из скрытых настроек сервера
+BOT_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 bot = telebot.TeleBot(BOT_TOKEN)
 
 user_data = {}
@@ -22,8 +24,6 @@ def home():
     return "Бот работает стабильно!"
 
 def run_flask():
-    # Render передает порт динамически в переменные окружения, берем его или ставим 8080
-    import os
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
@@ -35,8 +35,13 @@ def keep_alive():
 # --- ФУНКЦИЯ ЗАПИСИ В ГУГЛ-ТАБЛИЦУ ---
 def append_to_sheet(username, date, meet_format):
     try:
-        client = gspread.service_account(filename='credentials.json')
+        # БЕЗОПАСНО: Ключ авторизации берется из скрытых настроек сервера
+        creds_json = os.environ.get('GOOGLE_CREDS_JSON')
+        creds_dict = json.loads(creds_json)
+        
+        client = gspread.service_account_from_dict(creds_dict)
         sheet = client.open("Дневник Свиданий").sheet1
+        
         current_time = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
         row = [current_time, username, date, meet_format]
         sheet.append_row(row)
@@ -138,7 +143,7 @@ def handle_text_messages(message):
             bot.send_message(chat_id, "Может, стоит подумать ещё раз? 😉", reply_markup=get_keyboard_step_2())
             return
         else:
-            bot.send_message(chat_id, "Я пока не понял твой answer... Напиши 'Да' или 'Нет' 😊")
+            bot.send_message(chat_id, "Я пока не понял твой ответ... Напиши 'Да' или 'Нет' 😊")
             return
     elif status == "wait_date_select":
         if len(text) >= 4 and ("." in text or "," in text):
@@ -198,11 +203,6 @@ def callback_listener(call):
 
 if __name__ == "__main__":
     bot.remove_webhook()
-    
-    # СНАЧАЛА ЗАПУСКАЕМ ВЕБ-СЕРВЕР ДЛЯ ОБМАНА ОБЛАКА
     keep_alive()
     print("Фейковый сайт запущен для Render...")
-    
-    # ТЕПЕРЬ ЗАПУСКАЕМ БОТА В ОБЫЧНОМ РЕЖИМЕ
-    print("Бот успешно запущен и обновлен новыми форматами...")
     bot.infinity_polling()
