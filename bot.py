@@ -3,25 +3,42 @@ from datetime import datetime, timedelta
 import telebot
 from telebot import types
 import gspread
+from threading import Thread
+from flask import Flask
 
 logging.basicConfig(level=logging.INFO)
 
-# ВСТАВЬ СВОЙ ТОКЕН СЮДА ОБРАТНО
+# УБЕДИСЬ, ЧТО ТВОЙ ТОКЕН ТУТ НА МЕСТЕ!
 BOT_TOKEN = '8064709996:AAHKdGrsZhhtxTYb5i0urtEwfYlrSYRMKgA'
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Хранилище состояний
 user_data = {}
+
+# --- ОБМАНКА ДЛЯ СЕРВЕРА (ФЕЙКОВЫЙ ВЕБ-САЙТ) ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Бот работает стабильно!"
+
+def run_flask():
+    # Render передает порт динамически в переменные окружения, берем его или ставим 8080
+    import os
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.start()
+
 
 # --- ФУНКЦИЯ ЗАПИСИ В ГУГЛ-ТАБЛИЦУ ---
 def append_to_sheet(username, date, meet_format):
     try:
         client = gspread.service_account(filename='credentials.json')
         sheet = client.open("Дневник Свиданий").sheet1
-        
         current_time = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
         row = [current_time, username, date, meet_format]
-        
         sheet.append_row(row)
         logging.info(f"Данные успешно записаны в таблицу для {username}")
     except Exception as e:
@@ -59,7 +76,6 @@ def get_dates_keyboard():
 
 def get_format_keyboard():
     markup = types.InlineKeyboardMarkup(row_width=1)
-    # Добавили две новые кнопки в список
     markup.add(
         types.InlineKeyboardButton(text="Уютный ресторан/кафе 🍽️", callback_data="format_restaurant"),
         types.InlineKeyboardButton(text="Поход в кино 🍿", callback_data="format_cinema"),
@@ -74,23 +90,14 @@ def get_format_keyboard():
 
 def go_to_date_selection(chat_id):
     user_data[chat_id]["status"] = "wait_date_select"
-    bot.send_message(
-        chat_id=chat_id, 
-        text="Ура! 🎉 Выбери удобную дату на ближайшей неделе (или напиши её текстом, например, 15.06):", 
-        reply_markup=get_dates_keyboard()
-    )
+    bot.send_message(chat_id=chat_id, text="Ура! 🎉 Выбери удобную дату на ближайшей неделе (или напиши её текстом, например, 15.06):", reply_markup=get_dates_keyboard())
 
 def go_to_format_selection(chat_id, selected_date):
     user_data[chat_id]["date"] = selected_date
     user_data[chat_id]["status"] = "wait_format_select"
-    bot.send_message(
-        chat_id=chat_id, 
-        text=f"Отлично, {selected_date} принято! 📅\n\nА теперь выбери формат свидания (кнопкой или текстом):", 
-        reply_markup=get_format_keyboard()
-    )
+    bot.send_message(chat_id=chat_id, text=f"Отлично, {selected_date} принято! 📅\n\nА теперь выбери формат свидания (кнопкой или текстом):", reply_markup=get_format_keyboard())
 
 def finish_interview(chat_id, chosen_format, from_user):
-    # Сюда тоже добавили расшифровку для таблицы и красивого вывода
     format_titles = {
         "restaurant": "Уютный ресторан/кафе 🍽️",
         "cinema": "Поход в кино 🍿",
@@ -99,18 +106,11 @@ def finish_interview(chat_id, chosen_format, from_user):
         "surprise": "Сюрприз! ✨"
     }
     friendly_format = format_titles.get(chosen_format, chosen_format)
-    
     date = user_data[chat_id].get("date", "Не выбрана")
     username = from_user.username or from_user.first_name
-    
     user_data[chat_id]["status"] = "completed"
     
-    bot.send_message(
-        chat_id=chat_id,
-        text=f"Превосходно! 🥰\n\n📌 **Итог нашей встречи:**\n📅 Дата: {date}\n🎭 Формат: {friendly_format}\n\nЯ уже готовлюсь и очень жду! 🍾✨\nЛюблю тебя!!",
-        parse_mode="Markdown"
-    )
-    
+    bot.send_message(chat_id=chat_id, text=f"Превосходно! 🥰\n\n📌 **Итог нашей встречи:**\n📅 Дата: {date}\n🎭 Формат: {friendly_format}\n\nЯ уже готовлюсь и очень жду! 🍾✨\nЛюблю тебя!!", parse_mode="Markdown")
     append_to_sheet(username, date, friendly_format)
 
 
@@ -119,26 +119,17 @@ def finish_interview(chat_id, chosen_format, from_user):
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
     user_data[message.chat.id] = {"status": "wait_date_agree"}
-    bot.send_message(
-        chat_id=message.chat.id,
-        text="Привет! У меня к тебе важный вопрос... ✨\n\nХочешь ли ты пойти со мной на свидание?",
-        reply_markup=get_keyboard_step_1()
-    )
+    bot.send_message(chat_id=message.chat.id, text="Привет! У меня к тебе важный вопрос... ✨\n\nХочешь ли ты пойти со мной на свидание?", reply_markup=get_keyboard_step_1())
 
-
-# УМНАЯ ОБРАБОТКА И ЗАЩИТА ТЕКСТА
 @bot.message_handler(content_types=['text'])
 def handle_text_messages(message):
     chat_id = message.chat.id
     text = message.text.lower().strip()
-    
     if chat_id not in user_data or user_data[chat_id].get("status") == "completed":
         bot.send_message(chat_id, "Чтобы начать сначала, введи команду /start 🚀")
         return
-
     status = user_data[chat_id].get("status")
 
-    # 1. Распознавание текста на этапе согласия
     if status == "wait_date_agree":
         if text in ["да", "да!", "хочу", "давай", "пошли", "yes", "ок", "хорошо"]:
             go_to_date_selection(chat_id)
@@ -147,23 +138,16 @@ def handle_text_messages(message):
             bot.send_message(chat_id, "Может, стоит подумать ещё раз? 😉", reply_markup=get_keyboard_step_2())
             return
         else:
-            bot.send_message(chat_id, "Я пока не понял твой ответ... Напиши 'Да' или 'Нет' 😊")
+            bot.send_message(chat_id, "Я пока не понял твой answer... Напиши 'Да' или 'Нет' 😊")
             return
-
-    # 2. Распознавание текста на этапе выбора даты
     elif status == "wait_date_select":
         if len(text) >= 4 and ("." in text or "," in text):
             clean_date = text.replace(",", ".")
             go_to_format_selection(chat_id, clean_date)
             return
         else:
-            bot.send_message(
-                chat_id=chat_id,
-                text="Пожалуйста, выбери одну из дат на кнопках выше 📅 или напиши её в формате ДД.ММ (например: 14.06):"
-            )
+            bot.send_message(chat_id=chat_id, text="Пожалуйста, выбери одну из дат на кнопках выше 📅 или напиши её в формате ДД.ММ (например: 14.06):")
             return
-
-    # 3. Распознавание текста на этапе выбора формата (Добавили новые ключевые слова)
     elif status == "wait_format_select":
         if "ресторан" in text or "кафе" in text or "поесть" in text or "🍽️" in text:
             finish_interview(chat_id, "restaurant", message.from_user)
@@ -181,14 +165,9 @@ def handle_text_messages(message):
             finish_interview(chat_id, "surprise", message.from_user)
             return
         else:
-            bot.send_message(
-                chat_id=chat_id,
-                text="Интересный вариант! Но выбери, пожалуйста, что-то из этого:\n1. Ресторан 🍽️\n2. Поход в кино 🍿\n3. Ужин дома и фильм 🏠\n4. Прогулка ☕\n5. Сюрприз ✨\n(Можно текстом или кнопкой!)"
-            )
+            bot.send_message(chat_id=chat_id, text="Интересный вариант! Но выбери, пожалуйста, что-то из этого:\n1. Ресторан 🍽️\n2. Поход в кино 🍿\n3. Ужин дома и фильм 🏠\n4. Прогулка ☕\n5. Сюрприз ✨\n(Можно текстом или кнопкой!)")
             return
 
-
-# ОБРАБОТКА НАЖАТИЙ НА КНОПКИ
 @bot.callback_query_handler(func=lambda call: True)
 def callback_listener(call):
     chat_id = call.message.chat.id
@@ -198,22 +177,18 @@ def callback_listener(call):
     if call.data == "no_1":
         bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="Может, стоит подумать ещё раз? 😉", reply_markup=get_keyboard_step_2())
         bot.answer_callback_query(call.id)
-
     elif call.data == "no_2":
         bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="Хм, кажется, кнопка 'Нет' сломалась... 🔧\nДавай попробуем еще раз! Выбора особо нет :)", reply_markup=get_keyboard_step_2())
         bot.answer_callback_query(call.id)
-
     elif call.data == "yes":
         bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=None)
         go_to_date_selection(chat_id)
         bot.answer_callback_query(call.id)
-
     elif call.data.startswith("date_"):
         bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=None)
         selected_date = call.data.split("_")[1]
         go_to_format_selection(chat_id, selected_date)
         bot.answer_callback_query(call.id)
-
     elif call.data.startswith("format_"):
         bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=None)
         chosen_format = call.data.split("_")[1]
@@ -223,5 +198,11 @@ def callback_listener(call):
 
 if __name__ == "__main__":
     bot.remove_webhook()
+    
+    # СНАЧАЛА ЗАПУСКАЕМ ВЕБ-СЕРВЕР ДЛЯ ОБМАНА ОБЛАКА
+    keep_alive()
+    print("Фейковый сайт запущен для Render...")
+    
+    # ТЕПЕРЬ ЗАПУСКАЕМ БОТА В ОБЫЧНОМ РЕЖИМЕ
     print("Бот успешно запущен и обновлен новыми форматами...")
     bot.infinity_polling()
