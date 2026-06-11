@@ -11,7 +11,7 @@ from flask import Flask
 logging.basicConfig(level=logging.INFO)
 
 # БЕЗОПАСНО: Бот берет токен из скрытых настроек сервера
-BOT_TOKEN = os.environ.get('TELEGRAM_TOKEN')
+BOT_TOKEN = '8064709996:AAHKdGrsZhhtxTYb5i0urtEwfYlrSYRMKgA'
 bot = telebot.TeleBot(BOT_TOKEN)
 
 user_data = {}
